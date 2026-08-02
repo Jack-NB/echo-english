@@ -21,6 +21,10 @@ dist-ssr
 __pycache__/
 *.pyc
 
+# Local dev logs and ad-hoc APK copies
+vite.log*
+*.apk
+
 # Environment
 .env
 .env.local
