@@ -66,7 +66,7 @@ export default function GeneratedDocs() {
     setSelectedItem({ day: item.day, file: item.file });
     setContent('');
     setSelectedWord(null);
-  }, [selectItem]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +89,7 @@ export default function GeneratedDocs() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectItem]);
 
   useEffect(() => {
     if (!selectedItem) return;
