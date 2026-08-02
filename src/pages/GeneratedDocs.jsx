@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useState } from 'react';
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useLearning } from '../context/LearningContext';
 import { speakText } from '../utils/speech';
@@ -28,14 +28,36 @@ function loadLastDay() {
   }
 }
 
-function alternateText(value) {
-  if (!value) return '';
-  return Array.isArray(value) ? value.join(' / ') : String(value);
+function splitDoc(content) {
+  const lines = content.split('\n');
+  const transIdx = lines.findIndex(line => line.includes('中文翻译'));
+  const before = transIdx >= 0 ? lines.slice(0, transIdx) : lines;
+  const translation = transIdx >= 0 ? lines.slice(transIdx).join('\n') : '';
+
+  const start = before.findIndex(line => /^```/.test(line.trim()));
+  let end = -1;
+  if (start >= 0) {
+    for (let i = start + 1; i < before.length; i++) {
+      if (/^```/.test(before[i].trim())) {
+        end = i;
+        break;
+      }
+    }
+  }
+
+  const derivation = start >= 0 && end > start
+    ? before.slice(start, end + 1).join('\n')
+    : '';
+  const story = start >= 0
+    ? [...before.slice(0, start), ...(end >= 0 ? before.slice(end + 1) : [])].join('\n')
+    : before.join('\n');
+
+  return { derivation, story, translation };
 }
 
 function WordLink({ word, onWordClick }) {
   return (
-    <button type="button" className="doc-word" onClick={() => onWordClick(word)}>
+    <button type="button" className="doc-word" onClick={e => onWordClick(word, e)}>
       {word}
     </button>
   );
@@ -69,15 +91,18 @@ export default function GeneratedDocs() {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState(loadVisits);
   const [jumpValue, setJumpValue] = useState('');
-  const [selectedWord, setSelectedWord] = useState(null);
+  const [popover, setPopover] = useState(null);
   const [showRecent, setShowRecent] = useState(false);
+  const popoverRef = useRef(null);
 
   const selectItem = useCallback((item) => {
     setSelectedItem({ day: item.day, file: item.file });
     setContent('');
-    setSelectedWord(null);
+    setPopover(null);
     localStorage.setItem(LAST_DAY_KEY, String(item.day));
   }, []);
+
+  const closePopover = useCallback(() => setPopover(null), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +165,7 @@ export default function GeneratedDocs() {
     return map;
   }, [content]);
 
+  const docParts = useMemo(() => splitDoc(content), [content]);
   const selectedDay = selectedItem?.day ?? null;
 
   // Count a visit only when the reader stays on the doc for a few seconds.
@@ -159,6 +185,25 @@ export default function GeneratedDocs() {
     }, MIN_READ_MS);
     return () => clearTimeout(timer);
   }, [activeTab, selectedDay, content]);
+
+  // Close the word popover on outside tap / Escape.
+  useEffect(() => {
+    if (!popover) return;
+    function onPointerDown(event) {
+      if (popoverRef.current && !popoverRef.current.contains(event.target)) {
+        closePopover();
+      }
+    }
+    function onKeyDown(event) {
+      if (event.key === 'Escape') closePopover();
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [popover, closePopover]);
 
   const selectedIndex = manifest && selectedDay != null
     ? manifest.days.findIndex(d => d.day === selectedDay)
@@ -190,13 +235,15 @@ export default function GeneratedDocs() {
     setJumpValue('');
   }
 
-  function handleWordClick(word) {
+  function handleWordClick(word, event) {
     const key = word.toLowerCase();
     const entry = vocabulary.find(v => v.word.toLowerCase() === key) || null;
-    setSelectedWord({
+    setPopover({
       display: word,
       entry,
       docMeaning: docWordMap[key] || '',
+      x: event?.clientX ?? 0,
+      y: event?.clientY ?? 0,
     });
   }
 
@@ -205,12 +252,12 @@ export default function GeneratedDocs() {
     h2: ({ children }) => <h2 className="text-xl font-bold text-gray-900 mt-9 mb-3">{children}</h2>,
     h3: ({ children }) => <h3 className="text-lg font-bold text-gray-900 mt-7 mb-3">{children}</h3>,
     p: ({ children }) => (
-      <p className="text-[15px] text-gray-700 leading-loose mb-6">
+      <p className="text-[15px] text-gray-700 leading-loose mb-6 md:text-base md:leading-8">
         {wrapTextChildren(children, handleWordClick)}
       </p>
     ),
     pre: ({ children }) => (
-      <pre className="bg-gray-900 text-gray-100 text-[13px] leading-loose rounded-xl p-5 overflow-x-auto mb-7 whitespace-pre-wrap break-words">
+      <pre className="bg-gray-900 text-gray-100 text-[13px] leading-loose rounded-xl p-5 overflow-x-auto mb-7 whitespace-pre-wrap break-words md:text-sm">
         {wrapTextChildren(children, handleWordClick)}
       </pre>
     ),
@@ -247,18 +294,23 @@ export default function GeneratedDocs() {
     );
   }
 
-  const entry = selectedWord?.entry;
+  const entry = popover?.entry;
   const meanings = entry?.meanings || [];
   const phrases = entry?.phrases || [];
+  const popoverTop = popover
+    ? popover.y + 240 > window.innerHeight
+      ? Math.max(8, popover.y - 260)
+      : popover.y + 12
+    : 0;
 
   return (
-    <div className={`px-4 py-6 max-w-lg mx-auto ${selectedWord ? 'pb-40' : ''}`}>
+    <div className="px-4 py-6 max-w-6xl mx-auto md:px-6">
       <div className="mb-4">
         <h1 className="text-xl font-bold text-gray-900">AI 文档</h1>
         <p className="text-sm text-gray-400 mt-0.5">已生成 {manifest.total} 天</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm mb-3">
+      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm mb-4">
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -332,98 +384,112 @@ export default function GeneratedDocs() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-        <ReactMarkdown components={markdownComponents}>
-          {content || '加载中...'}
-        </ReactMarkdown>
+      {docParts.derivation && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm mb-5">
+          <ReactMarkdown components={markdownComponents}>
+            {docParts.derivation}
+          </ReactMarkdown>
+        </div>
+      )}
+
+      <div className={docParts.translation ? 'md:grid md:grid-cols-2 md:gap-5' : ''}>
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm mb-5 md:mb-0">
+          <ReactMarkdown components={markdownComponents}>
+            {docParts.story || content}
+          </ReactMarkdown>
+        </div>
+        {docParts.translation && (
+          <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm">
+            <ReactMarkdown components={markdownComponents}>
+              {docParts.translation}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
 
-      {selectedWord && (
-        <div className="fixed inset-x-0 bottom-0 z-40 bg-white rounded-t-2xl shadow-2xl border-t border-gray-200 max-h-[72vh] overflow-y-auto safe-bottom">
-          <div className="sticky top-0 bg-white px-5 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h3 className="text-xl font-bold text-gray-900">{selectedWord.display}</h3>
+      {popover && (
+        <div
+          ref={popoverRef}
+          className="fixed z-50 w-72 max-h-[65vh] overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl"
+          style={{
+            left: Math.max(8, Math.min(popover.x, window.innerWidth - 296)),
+            top: popoverTop,
+          }}
+        >
+          <div className="sticky top-0 bg-white px-4 pt-3 pb-2 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-gray-900">{popover.display}</h3>
               <button
-                onClick={() => speakText(selectedWord.display)}
-                className="w-8 h-8 rounded-full bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors"
+                onClick={() => speakText(popover.display)}
+                className="w-7 h-7 rounded-full bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors"
                 aria-label="播放发音"
               >
-                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                 </svg>
               </button>
             </div>
             <button
-              onClick={() => setSelectedWord(null)}
-              className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition-colors"
+              onClick={closePopover}
+              className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition-colors"
               aria-label="关闭"
             >
               ×
             </button>
           </div>
 
-          <div className="px-5 py-4">
-            <div className="flex flex-wrap gap-2 mb-4">
+          <div className="px-4 py-3">
+            <div className="flex flex-wrap gap-2 mb-3">
               {entry?.inOutline === false && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-500 font-medium">
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-50 text-red-500 font-medium">
                   不在大纲内
                 </span>
               )}
               {entry?.sourceDay != null && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-500 font-medium">
-                  源自 Day {String(entry.sourceDay).padStart(3, '0')} 派生词
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-500 font-medium">
+                  Day {String(entry.sourceDay).padStart(3, '0')} 派生
                 </span>
               )}
               {entry?.frequency != null && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 font-medium">
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
                   词频 {entry.frequency}
                 </span>
               )}
               {entry?.category && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-medium">
                   {entry.category}
-                </span>
-              )}
-              {entry?.subcategory && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 font-medium">
-                  {entry.subcategory}
-                </span>
-              )}
-              {alternateText(entry?.alternate) && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 font-medium">
-                  {alternateText(entry.alternate)}
                 </span>
               )}
             </div>
 
             {meanings.length > 0 ? (
-              <div className="space-y-3 mb-5">
+              <div className="space-y-2 mb-3">
                 {meanings.map((item, index) => (
-                  <div key={index} className="flex items-start gap-3">
-                    <span className="shrink-0 min-w-8 text-center text-xs font-semibold text-white bg-blue-500 rounded px-1.5 py-0.5">
+                  <div key={index} className="flex items-start gap-2">
+                    <span className="shrink-0 min-w-7 text-center text-[11px] font-semibold text-white bg-blue-500 rounded px-1 py-0.5">
                       {item.type || '义'}
                     </span>
-                    <p className="text-[15px] text-gray-700 leading-relaxed">{item.translation}</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{item.translation}</p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-[15px] text-gray-700 leading-relaxed mb-5">
-                {entry?.meaning || selectedWord.docMeaning || '暂无独立词条，请结合文中语境理解'}
+              <p className="text-sm text-gray-700 leading-relaxed mb-3">
+                {entry?.meaning || popover.docMeaning || '暂无独立词条，请结合文中语境理解'}
               </p>
             )}
 
-            {!meanings.length && selectedWord.docMeaning && (
-              <p className="text-xs text-gray-400 mb-5">文中释义：{selectedWord.docMeaning}</p>
+            {!meanings.length && popover.docMeaning && (
+              <p className="text-xs text-gray-400 mb-3">文中释义：{popover.docMeaning}</p>
             )}
 
             {phrases.length > 0 && (
-              <div className="mb-4">
-                <h4 className="text-sm font-semibold text-gray-900 mb-2">常用搭配</h4>
-                <div className="space-y-2">
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900 mb-1.5">常用搭配</h4>
+                <div className="space-y-1.5">
                   {phrases.map((item, index) => (
-                    <div key={index} className="bg-gray-50 rounded-lg px-3 py-2">
-                      <p className="text-sm font-medium text-gray-800">{item.phrase}</p>
+                    <div key={index} className="bg-gray-50 rounded-lg px-2.5 py-1.5">
+                      <p className="text-[13px] font-medium text-gray-800">{item.phrase}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{item.translation}</p>
                     </div>
                   ))}
