@@ -31,28 +31,50 @@ function loadLastDay() {
 function splitDoc(content) {
   const lines = content.split('\n');
   const transIdx = lines.findIndex(line => line.includes('中文翻译'));
-  const before = transIdx >= 0 ? lines.slice(0, transIdx) : lines;
+  const beforeLines = (transIdx >= 0 ? lines.slice(0, transIdx) : lines).filter(line => {
+    const trimmed = line.trim();
+    return !/^#\s+Day\s+\d+/.test(trimmed) && !/^>\s*生成时间/.test(trimmed);
+  });
   const translation = transIdx >= 0 ? lines.slice(transIdx).join('\n') : '';
 
-  const start = before.findIndex(line => /^```/.test(line.trim()));
-  let end = -1;
-  if (start >= 0) {
-    for (let i = start + 1; i < before.length; i++) {
-      if (/^```/.test(before[i].trim())) {
-        end = i;
-        break;
-      }
+  const storyMarker = /###\s*2\.?\s*连锁故事|^\*\*(英文)?连锁故事|^\*\*The Chain Story/;
+  let storyIdx = beforeLines.findIndex(line => storyMarker.test(line.trim()));
+  if (storyIdx < 0) {
+    const fenceStart = beforeLines.findIndex(line => /^```/.test(line.trim()));
+    if (fenceStart >= 0) {
+      const fenceEnd = beforeLines.findIndex(
+        (line, index) => index > fenceStart && /^```/.test(line.trim())
+      );
+      storyIdx = fenceEnd >= 0 ? fenceEnd + 1 : fenceStart + 1;
+    } else {
+      storyIdx = 0;
     }
   }
 
-  const derivation = start >= 0 && end > start
-    ? before.slice(start, end + 1).join('\n')
-    : '';
-  const story = start >= 0
-    ? [...before.slice(0, start), ...(end >= 0 ? before.slice(end + 1) : [])].join('\n')
-    : before.join('\n');
-
+  const derivation = beforeLines.slice(0, storyIdx).join('\n');
+  const story = beforeLines.slice(storyIdx).join('\n');
   return { derivation, story, translation };
+}
+
+function splitParagraphs(markdown) {
+  return markdown
+    .split(/\n\s*\n/)
+    .map(s => s.trim())
+    .filter(s => (
+      s
+      && !/^#{1,4}\s/.test(s)
+      && !/^\*\*[^*]+\*\*$/.test(s)
+      && !/^\*\*[^*]+\*\*\s*([：:]\s*)?([（(][^）)]*[）)])?\s*[：:]?\s*$/.test(s)
+      && !/^-{3,}$/.test(s)
+    ));
+}
+
+function cleanTranslation(paragraph) {
+  return paragraph
+    .replace(/[（(][A-Za-z][A-Za-z'’\- ]*[）)]/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 function WordLink({ word, onWordClick }) {
@@ -94,6 +116,7 @@ export default function GeneratedDocs() {
   const [popover, setPopover] = useState(null);
   const [showRecent, setShowRecent] = useState(false);
   const popoverRef = useRef(null);
+  const scrollToBottomRef = useRef(false);
 
   const selectItem = useCallback((item) => {
     setSelectedItem({ day: item.day, file: item.file });
@@ -166,12 +189,16 @@ export default function GeneratedDocs() {
   }, [content]);
 
   const docParts = useMemo(() => splitDoc(content), [content]);
-  const derivationDisplay = useMemo(
-    () => docParts.derivation
-      .replace(/\*/g, '')
-      .replace(/([A-Za-z])-(\s|\))/g, '$1$2'),
-    [docParts.derivation]
-  );
+  const storyParas = useMemo(() => splitParagraphs(docParts.story), [docParts.story]);
+  const transParas = useMemo(() => splitParagraphs(docParts.translation), [docParts.translation]);
+  const paraCount = Math.max(storyParas.length, transParas.length);
+  const derivationDisplay = useMemo(() => {
+    let raw = docParts.derivation.replace(/^#{1,4}\s+.*$/gm, '').trim();
+    if (!raw) return '';
+    raw = raw.replace(/\*/g, '').replace(/([A-Za-z])-(\s|\))/g, '$1$2');
+    if (!raw.includes('```')) return `\`\`\`text\n${raw}\n\`\`\``;
+    return raw;
+  }, [docParts.derivation]);
   const selectedDay = selectedItem?.day ?? null;
 
   // Count a visit only when the reader stays on the doc for a few seconds.
@@ -191,6 +218,21 @@ export default function GeneratedDocs() {
     }, MIN_READ_MS);
     return () => clearTimeout(timer);
   }, [activeTab, selectedDay, content]);
+
+  // After a bottom page turn, land at the bottom of the new page.
+  useEffect(() => {
+    if (!content || !scrollToBottomRef.current) return;
+    scrollToBottomRef.current = false;
+    const timer = setTimeout(() => {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [content]);
+
+  function bottomTurn(item) {
+    scrollToBottomRef.current = true;
+    selectItem(item);
+  }
 
   // Close the word popover on outside tap / Escape.
   useEffect(() => {
@@ -312,8 +354,10 @@ export default function GeneratedDocs() {
   return (
     <div className="px-4 py-6 max-w-6xl mx-auto md:px-6">
       <div className="mb-4">
-        <h1 className="text-xl font-bold text-gray-900">AI 文档</h1>
-        <p className="text-sm text-gray-400 mt-0.5">已生成 {manifest.total} 天</p>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {selectedDay != null ? dayLabel(selectedDay) : 'AI 文档'}
+        </h1>
+        <p className="text-sm text-gray-400 mt-0.5">共 {manifest.total} 天</p>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm mb-4">
@@ -398,19 +442,48 @@ export default function GeneratedDocs() {
         </div>
       )}
 
-      <div className={docParts.translation ? 'md:grid md:grid-cols-2 md:gap-5' : ''}>
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm mb-5 md:mb-0">
-          <ReactMarkdown components={markdownComponents}>
-            {docParts.story || content}
-          </ReactMarkdown>
-        </div>
-        {docParts.translation && (
-          <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm">
-            <ReactMarkdown components={markdownComponents}>
-              {docParts.translation}
-            </ReactMarkdown>
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm">
+        {Array.from({ length: paraCount }, (_, index) => (
+          <div
+            key={index}
+            className={`md:grid md:grid-cols-10 md:gap-6 md:items-start ${
+              index < paraCount - 1 ? 'border-b border-gray-100 pb-5 mb-5' : ''
+            }`}
+          >
+            <div className="md:col-span-6">
+              <ReactMarkdown components={markdownComponents}>
+                {storyParas[index] || ''}
+              </ReactMarkdown>
+            </div>
+            {transParas[index] && (
+              <div className="mt-3 md:mt-0 md:col-span-4">
+                <ReactMarkdown components={markdownComponents}>
+                  {cleanTranslation(transParas[index])}
+                </ReactMarkdown>
+              </div>
+            )}
           </div>
-        )}
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between mt-6 bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+        <button
+          onClick={() => prevItem && bottomTurn(prevItem)}
+          disabled={!prevItem}
+          className="shrink-0 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 disabled:opacity-30 hover:bg-gray-50 transition-colors"
+        >
+          ‹ 上一篇
+        </button>
+        <span className="text-sm font-semibold text-gray-700">
+          {selectedDay != null ? dayLabel(selectedDay) : ''}
+        </span>
+        <button
+          onClick={() => nextItem && bottomTurn(nextItem)}
+          disabled={!nextItem}
+          className="shrink-0 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 disabled:opacity-30 hover:bg-gray-50 transition-colors"
+        >
+          下一篇 ›
+        </button>
       </div>
 
       {popover && (
