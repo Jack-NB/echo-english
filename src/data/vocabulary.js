@@ -11,7 +11,8 @@ import part9 from './vocabulary-9';
 import part10 from './vocabulary-10';
 import part11 from './vocabulary-11';
 import part12 from './vocabulary-12';
+import extra from './vocabulary-extra';
 
-const vocabulary = [...part1, ...part2, ...part3, ...part4, ...part5, ...part6, ...part7, ...part8, ...part9, ...part10, ...part11, ...part12];
+const vocabulary = [...part1, ...part2, ...part3, ...part4, ...part5, ...part6, ...part7, ...part8, ...part9, ...part10, ...part11, ...part12, ...extra];
 
 export default vocabulary;

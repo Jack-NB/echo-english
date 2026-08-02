@@ -4,6 +4,7 @@ import { useLearning } from '../context/LearningContext';
 import { speakText } from '../utils/speech';
 
 const VISITS_KEY = 'echo_english_doc_visits_v1';
+const LAST_DAY_KEY = 'echo_english_last_day_v1';
 const MIN_READ_MS = 3000;
 
 function loadVisits() {
@@ -16,6 +17,15 @@ function loadVisits() {
 
 function dayLabel(day) {
   return `Day ${String(day).padStart(3, '0')}`;
+}
+
+function loadLastDay() {
+  try {
+    const value = Number(localStorage.getItem(LAST_DAY_KEY));
+    return Number.isInteger(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function alternateText(value) {
@@ -66,6 +76,7 @@ export default function GeneratedDocs() {
     setSelectedItem({ day: item.day, file: item.file });
     setContent('');
     setSelectedWord(null);
+    localStorage.setItem(LAST_DAY_KEY, String(item.day));
   }, []);
 
   useEffect(() => {
@@ -77,7 +88,11 @@ export default function GeneratedDocs() {
         setManifest(data);
         setLoading(false);
         if (data.days?.length) {
-          selectItem(data.days[data.days.length - 1]);
+          const saved = loadLastDay();
+          const found = saved != null
+            ? data.days.find(d => d.day === saved)
+            : null;
+          selectItem(found || data.days[data.days.length - 1]);
         }
       })
       .catch(() => {
@@ -349,6 +364,16 @@ export default function GeneratedDocs() {
 
           <div className="px-5 py-4">
             <div className="flex flex-wrap gap-2 mb-4">
+              {entry?.inOutline === false && (
+                <span className="text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-500 font-medium">
+                  不在大纲内
+                </span>
+              )}
+              {entry?.sourceDay != null && (
+                <span className="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-500 font-medium">
+                  源自 Day {String(entry.sourceDay).padStart(3, '0')} 派生词
+                </span>
+              )}
               {entry?.frequency != null && (
                 <span className="text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 font-medium">
                   词频 {entry.frequency}
