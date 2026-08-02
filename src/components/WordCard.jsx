@@ -1,15 +1,6 @@
-import { useMemo } from 'react';
+import { speakText } from '../utils/speech';
 
 export default function WordCard({ word, showMeaning, onFlip, flipped, children }) {
-  const speak = useMemo(() => () => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(word.word);
-      utterance.lang = 'en-US';
-      utterance.rate = 0.9;
-      speechSynthesis.speak(utterance);
-    }
-  }, [word.word]);
-
   return (
     <div className="fade-in">
       <div
@@ -23,7 +14,7 @@ export default function WordCard({ word, showMeaning, onFlip, flipped, children 
             <div className="flex items-center gap-3 mb-4">
               <h2 className="text-3xl font-bold text-gray-900">{word.word}</h2>
               <button
-                onClick={(e) => { e.stopPropagation(); speak(); }}
+                onClick={(e) => { e.stopPropagation(); speakText(word.word); }}
                 className="w-10 h-10 rounded-full bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors"
                 title="点击播放发音"
               >

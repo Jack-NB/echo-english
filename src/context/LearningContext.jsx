@@ -3,16 +3,18 @@ import vocabulary from '../data/vocabulary';
 import { getProgress, saveProgress, getTodayLearnedIds, addTodayLearnedId } from '../utils/storage';
 import { getInitialProgress, advanceStage, resetStage, markAsMistake } from '../utils/spacedRepetition';
 
+/* eslint-disable react-refresh/only-export-components -- context + hook pattern */
 const LearningContext = createContext(null);
 
 export function LearningProvider({ children }) {
   const [progress, setProgress] = useState(() => getProgress());
   const [todayLearnedIds, setTodayLearnedIds] = useState(() => getTodayLearnedIds());
-  const [activeTab, setActiveTab] = useState('learn');
+  const [activeTab, setActiveTab] = useState('docs');
+  const [now, setNow] = useState(() => Date.now());
 
-  const save = useCallback((newProgress) => {
-    setProgress(newProgress);
-    saveProgress(newProgress);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60 * 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const learnWord = useCallback((wordId) => {
@@ -57,25 +59,39 @@ export function LearningProvider({ children }) {
     });
   }, []);
 
+  // Words due for review (nextReview <= now)
   const reviewQueue = useMemo(() => {
-    const now = Date.now();
     return vocabulary
       .filter(w => {
         const p = progress[w.id];
         return p && !p.learned && p.nextReview && p.nextReview <= now;
       })
       .sort((a, b) => (progress[a.id]?.nextReview || 0) - (progress[b.id]?.nextReview || 0));
+  }, [progress, now]);
+
+  // ALL words that have been started but not mastered (for review page)
+  const allLearningWords = useMemo(() => {
+    return vocabulary
+      .filter(w => {
+        const p = progress[w.id];
+        return p && !p.learned;
+      })
+      .sort((a, b) => (progress[a.id]?.nextReview || 0) - (progress[b.id]?.nextReview || 0));
   }, [progress]);
+
+  // Count how many words are due vs recently learned
+  const reviewStats = useMemo(() => {
+    let due = 0, recent = 0;
+    allLearningWords.forEach(w => {
+      const p = progress[w.id];
+      if (p && p.nextReview <= now) due++;
+      else recent++;
+    });
+    return { due, recent, total: allLearningWords.length };
+  }, [allLearningWords, progress, now]);
 
   const errorBookWords = useMemo(() => {
     return vocabulary.filter(w => progress[w.id]?.inErrorBook);
-  }, [progress]);
-
-  const newWordsToday = useMemo(() => {
-    return vocabulary.filter(w => {
-      const p = progress[w.id];
-      return !p || (p.stage === 0 && !p.learned);
-    });
   }, [progress]);
 
   const totalLearned = useMemo(() => {
@@ -87,15 +103,17 @@ export function LearningProvider({ children }) {
     progress,
     todayLearnedIds,
     activeTab,
+    now,
     reviewQueue,
+    allLearningWords,
+    reviewStats,
     errorBookWords,
-    newWordsToday,
     totalLearned,
     setActiveTab,
     learnWord,
     reviewWord,
     addToErrorBook,
-  }), [progress, todayLearnedIds, activeTab, reviewQueue, errorBookWords, newWordsToday, totalLearned, learnWord, reviewWord, addToErrorBook]);
+  }), [progress, todayLearnedIds, activeTab, now, reviewQueue, allLearningWords, reviewStats, errorBookWords, totalLearned, learnWord, reviewWord, addToErrorBook]);
 
   return (
     <LearningContext.Provider value={value}>

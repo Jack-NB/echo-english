@@ -1,6 +1,6 @@
-const PROGRESS_KEY = 'echo_english_progress';
-const TODAY_LEARNED_KEY = 'echo_english_today_learned';
-const TODAY_DATE_KEY = 'echo_english_today_date';
+const PROGRESS_KEY = 'echo_english_progress_v2';
+const TODAY_LEARNED_KEY = 'echo_english_today_learned_v2';
+const TODAY_DATE_KEY = 'echo_english_today_date_v2';
 
 export function getProgress() {
   try {

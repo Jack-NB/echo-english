@@ -1,9 +1,7 @@
 import { useLearning } from '../context/LearningContext';
 
 const tabs = [
-  { key: 'learn', label: '今日学习', icon: '📖' },
-  { key: 'review', label: '复习', icon: '🔄' },
-  { key: 'quiz', label: '听力测验', icon: '🎧' },
+  { key: 'docs', label: 'AI文档', icon: '📄' },
 ];
 
 export default function TabBar() {
