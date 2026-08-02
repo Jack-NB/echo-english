@@ -166,6 +166,12 @@ export default function GeneratedDocs() {
   }, [content]);
 
   const docParts = useMemo(() => splitDoc(content), [content]);
+  const derivationDisplay = useMemo(
+    () => docParts.derivation
+      .replace(/\*/g, '')
+      .replace(/([A-Za-z])-(\s|\))/g, '$1$2'),
+    [docParts.derivation]
+  );
   const selectedDay = selectedItem?.day ?? null;
 
   // Count a visit only when the reader stays on the doc for a few seconds.
@@ -384,10 +390,10 @@ export default function GeneratedDocs() {
         </div>
       )}
 
-      {docParts.derivation && (
+      {derivationDisplay && (
         <div className="bg-white rounded-2xl border border-gray-100 p-5 md:p-8 shadow-sm mb-5">
           <ReactMarkdown components={markdownComponents}>
-            {docParts.derivation}
+            {derivationDisplay}
           </ReactMarkdown>
         </div>
       )}
@@ -442,12 +448,17 @@ export default function GeneratedDocs() {
             <div className="flex flex-wrap gap-2 mb-3">
               {entry?.inOutline === false && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-50 text-red-500 font-medium">
-                  不在大纲内
+                  非大纲
                 </span>
               )}
-              {entry?.sourceDay != null && (
+              {entry?.rootWord && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-500 font-medium">
-                  Day {String(entry.sourceDay).padStart(3, '0')} 派生
+                  原词 {entry.rootWord}
+                </span>
+              )}
+              {entry?.baseWord && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500 font-medium">
+                  原形 {entry.baseWord}
                 </span>
               )}
               {entry?.frequency != null && (
