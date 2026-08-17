@@ -12,10 +12,7 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
-    rollupOptions: {
-      output: {
-        manualChunks: undefined,
-      },
-    },
+    // vocabulary-extra is a deliberately large, lazy-loaded dictionary chunk.
+    chunkSizeWarningLimit: 3200,
   },
 })

@@ -49,6 +49,7 @@ MAX_RETRIES = 3
 RETRY_INTERVAL_SECONDS = 5
 BATCH_INTERVAL_SECONDS = 2
 WEB_OUTPUT_DIR = Path(__file__).resolve().parent / "public" / "generated"
+CACHE_DIR = Path(__file__).resolve().parent / "output" / ".cache"
 
 
 def build_prompt(words_batch: list[dict]) -> str:
@@ -83,12 +84,30 @@ def build_prompt(words_batch: list[dict]) -> str:
 请直接输出内容，不要有任何多余的解释或开场白。"""
 
 
-def fetch_vocabulary(source: str, limit: int) -> list[dict]:
-    """Download and normalize the word list as [{"word", "translation"}]."""
+def fetch_payload(source: str, use_cache: bool = True) -> dict:
+    """Download the raw word-list JSON, caching it locally between runs."""
     config = DATA_SOURCES[source]
+    cache_path = CACHE_DIR / f"{source}.json"
+    if use_cache and cache_path.exists():
+        try:
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass  # corrupted cache, fall through to a fresh download
     response = requests.get(config["url"], timeout=60)
     response.raise_for_status()
     payload = response.json()
+    if use_cache:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+    return payload
+
+
+def fetch_vocabulary(source: str, limit: int, use_cache: bool = True) -> list[dict]:
+    """Download and normalize the word list as [{"word", "translation"}]."""
+    config = DATA_SOURCES[source]
+    payload = fetch_payload(source, use_cache)
     rows = next(iter(payload.values())) if config["nested"] else payload
     words = [
         {
@@ -162,6 +181,11 @@ def main() -> None:
         default="netem",
         help="词库数据源（默认 netem: exam-data/NETEMVocabulary）",
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="忽略本地词库缓存，强制重新下载",
+    )
     args = parser.parse_args()
 
     api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -178,7 +202,7 @@ def main() -> None:
     client = OpenAI(api_key=api_key, base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
 
     print(f"正在从 {DATA_SOURCES[args.source]['url']} 下载词库...")
-    words = fetch_vocabulary(args.source, limit=5500)
+    words = fetch_vocabulary(args.source, limit=5500, use_cache=not args.no_cache)
     batches = list(chunk_list(words, size=20))
     print(f"共 {len(words)} 个单词，分成 {len(batches)} 批")
 

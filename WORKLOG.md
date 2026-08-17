@@ -1,5 +1,48 @@
 # 工作日志
 
+## v2.1.1 — 离线支持(PWA)
+
+- 新增 `public/sw.js`:应用壳 network-first(发布即更新),静态资源与生成文档
+  stale-while-revalidate(缓存秒开 + 后台刷新),install 预缓存入口页;
+  发布时递增 `CACHE_NAME` 即可清旧缓存。
+- 新增 `public/manifest.webmanifest` 与 `public/icons/`(192/512/180 PNG +
+  SVG 源文件,紫色 Echo 图标),支持"添加到主屏幕"与 maskable 图标。
+- `index.html` 挂载 manifest/apple-touch-icon/description;`main.jsx` 仅在生产
+  构建注册 SW,开发模式不受缓存干扰。
+- 文档加载失败(如离线且未缓存)时显示提示条;清单为空且离线时给出联网提示。
+- 实测:断网后整页刷新正常、已缓存 Day 可读、未缓存 Day 显示提示,
+  manifest/图标/SW 均 200,在线阶段零 console 报错。
+- 部署层说明:GitHub Pages CDN 已自动 gzip(实测 7 MB JS 传输 1.37 MB),
+  `.nojekyll` 已在产物中,`Cache-Control: max-age=600` 为 Pages 固定值,
+  由 SW 缓存抵消。
+
+## v2.1.0 — 性能与体积优化
+
+### 包体积(7.08 MB → 首屏约 3.3 MB)
+
+- 词库数据文件改为紧凑 JSON(去缩进、剔除所有空字段):`vocabulary-extra.js`
+  6.27 MB → 2.65 MB,大纲词 12 分卷合计 4.5 MB → 2.8 MB。
+- 非大纲扩展词典(约 1.2 万词)从主包拆出,改为按需加载:浏览器空闲时预取,
+  点击生词时才真正下载(`src/utils/vocabLookup.js`),首屏包体减半。
+- 生成脚本(`update_vocabulary.py`、`build_extra_vocabulary.py`)同步改为输出
+  紧凑格式,重新生成也不会退化。
+
+### 运行时
+
+- 单词查词从每次线性扫描 1.7 万词条改为 Map 索引 O(1);生词异步查询扩展词典,
+  弹层先显示「词典加载中/文中释义」,命中后自动补全。
+- 移除 LearningContext 的 5 个全量扫描 useMemo 与每分钟 tick 重渲染
+  (复习队列/错题本等计算在纯文档模式下全部白做)。
+
+### 清理
+
+- 彻底移除已无入口的旧页面(TodayLearning/ReviewPage/WordLibrary/ListeningQuiz)、
+  TabBar、WordCard、storage/spacedRepetition 工具与 react/vite/hero 资源。
+- 修复 favicon 404(`index.html` 原指向不存在的 `vite.svg`,改为 `favicon.svg`)。
+- `output/` 加入 .gitignore(生成产物),`public/generated/` 保持提交;
+  删除根目录遗留的 `kaoyan-english.html`。
+- `main.py` 词库下载增加本地缓存(`output/.cache/`,`--no-cache` 强制刷新)。
+
 ## v2.0.0 — 全量考研大纲词库 + AI 记忆文档生成器
 
 ### 数据

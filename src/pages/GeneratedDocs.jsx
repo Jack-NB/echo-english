@@ -1,6 +1,6 @@
 import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { useLearning } from '../context/LearningContext';
+import { lookupWord, lookupWordDeep, preloadExtra } from '../utils/vocabLookup';
 import { speakText } from '../utils/speech';
 
 const VISITS_KEY = 'echo_english_doc_visits_v1';
@@ -106,10 +106,10 @@ function wrapTextChildren(children, onWordClick) {
 }
 
 export default function GeneratedDocs() {
-  const { activeTab, vocabulary } = useLearning();
   const [manifest, setManifest] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [content, setContent] = useState('');
+  const [fetchError, setFetchError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState(loadVisits);
   const [jumpValue, setJumpValue] = useState('');
@@ -121,6 +121,7 @@ export default function GeneratedDocs() {
   const selectItem = useCallback((item) => {
     setSelectedItem({ day: item.day, file: item.file });
     setContent('');
+    setFetchError(false);
     setPopover(null);
     localStorage.setItem(LAST_DAY_KEY, String(item.day));
   }, []);
@@ -163,7 +164,10 @@ export default function GeneratedDocs() {
         if (!cancelled) setContent(text);
       })
       .catch(() => {
-        if (!cancelled) setContent('');
+        if (!cancelled) {
+          setContent('');
+          setFetchError(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -201,9 +205,14 @@ export default function GeneratedDocs() {
   }, [docParts.derivation]);
   const selectedDay = selectedItem?.day ?? null;
 
+  // Warm the extra dictionary during idle time so word clicks stay fast.
+  useEffect(() => {
+    preloadExtra();
+  }, []);
+
   // Count a visit only when the reader stays on the doc for a few seconds.
   useEffect(() => {
-    if (activeTab !== 'docs' || selectedDay == null || !content) return;
+    if (selectedDay == null || !content) return;
     const day = selectedDay;
     const timer = setTimeout(() => {
       setVisits(prev => {
@@ -217,7 +226,7 @@ export default function GeneratedDocs() {
       });
     }, MIN_READ_MS);
     return () => clearTimeout(timer);
-  }, [activeTab, selectedDay, content]);
+  }, [selectedDay, content]);
 
   // After a bottom page turn, land at the bottom of the new page.
   useEffect(() => {
@@ -285,14 +294,24 @@ export default function GeneratedDocs() {
 
   function handleWordClick(word, event) {
     const key = word.toLowerCase();
-    const entry = vocabulary.find(v => v.word.toLowerCase() === key) || null;
+    const known = lookupWord(word);
     setPopover({
       display: word,
-      entry,
+      entry: known || null,
       docMeaning: docWordMap[key] || '',
+      pending: !known,
       x: event?.clientX ?? 0,
       y: event?.clientY ?? 0,
     });
+    if (!known) {
+      lookupWordDeep(word).then((entry) => {
+        setPopover(prev => (
+          prev && prev.display === word
+            ? { ...prev, entry, pending: false }
+            : prev
+        ));
+      });
+    }
   }
 
   const markdownComponents = {
@@ -337,6 +356,9 @@ export default function GeneratedDocs() {
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
           <h2 className="text-xl font-bold text-gray-900 mb-2">AI 文档生成中</h2>
           <p className="text-gray-500">生成器正在后台运行，稍后刷新查看</p>
+          {!navigator.onLine && (
+            <p className="text-gray-400 text-sm mt-1">当前离线且文档尚未缓存，请联网后访问</p>
+          )}
         </div>
       </div>
     );
@@ -401,6 +423,12 @@ export default function GeneratedDocs() {
           {selectedDay != null ? dayLabel(selectedDay) : ''} · 本日访问 {selectedVisits} 次
         </p>
       </div>
+
+      {fetchError && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-xl px-4 py-3 mb-4">
+          本篇文档加载失败(可能离线且尚未缓存),恢复网络后重试
+        </div>
+      )}
 
       {recentVisits.length > 0 && (
         <div className="mb-4">
@@ -559,7 +587,9 @@ export default function GeneratedDocs() {
               </div>
             ) : (
               <p className="text-sm text-gray-700 leading-relaxed mb-3">
-                {entry?.meaning || popover.docMeaning || '暂无独立词条，请结合文中语境理解'}
+                {popover.pending && !popover.docMeaning
+                  ? '词典加载中…'
+                  : entry?.meaning || popover.docMeaning || '暂无独立词条，请结合文中语境理解'}
               </p>
             )}
 

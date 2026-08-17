@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { LearningProvider } from './context/LearningContext';
 import GeneratedDocs from './pages/GeneratedDocs';
 
-function AppContent() {
+export default function App() {
   const [online, setOnline] = useState(navigator.onLine);
 
   useEffect(() => {
@@ -36,13 +35,5 @@ function AppContent() {
         <GeneratedDocs />
       </main>
     </div>
-  );
-}
-
-export default function App() {
-  return (
-    <LearningProvider>
-      <AppContent />
-    </LearningProvider>
   );
 }
